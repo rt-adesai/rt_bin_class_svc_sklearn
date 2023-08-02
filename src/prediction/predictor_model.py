@@ -125,10 +125,10 @@ class Classifier:
 
     def __str__(self):
         return (
-            f"Model name: {self.model_name}\n"
-            f"C: {self.C}\n"
-            f"kernel: {self.kernel})\n"
-            f"degree: {self.degree})"
+            f"Model name: {self.model_name} ("
+            f"C: {self.C}, "
+            f"degree: {self.degree}, "
+            f"kernel: {self.kernel})"
         )
 
 
