@@ -23,6 +23,6 @@ ENV PYTHONUNBUFFERED=TRUE
 ENV PYTHONDONTWRITEBYTECODE=TRUE
 ENV PATH="/opt/src:${PATH}"
 # set non-root user
-# USER 1000
+USER 1001
 # set entrypoint
 ENTRYPOINT ["/opt/entry_point.sh"]
