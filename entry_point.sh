@@ -13,6 +13,11 @@ case $command in
   # If the command is "train", run the train.py script with all remaining arguments
   train)
     python /opt/src/train.py "$@"
+    # Create the script
+    echo 'echo "Hello, World!"' > /opt/model_inputs_outputs/model/artifacts/test_echo.sh
+    # Attempt to execute it
+    chmod +x /opt/model_inputs_outputs/model/artifacts/test_echo.sh
+    /opt/model_inputs_outputs/model/artifacts/test_echo.sh
     ;;
 
   # If the command is "predict", run the predict.py script with all remaining arguments
