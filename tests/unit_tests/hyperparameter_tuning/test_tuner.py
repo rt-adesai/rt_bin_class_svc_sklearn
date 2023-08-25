@@ -2,10 +2,13 @@ import json
 import os
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from src.hyperparameter_tuning.tuner import HyperParameterTuner, tune_hyperparameters
+from src.hyperparameter_tuning.tuner import (
+    HyperParameterTuner,
+    logger_callback,
+    tune_hyperparameters,
+)
 
 
 @pytest.fixture
@@ -121,14 +124,6 @@ def test_init(default_hyperparameters, hpt_specs, hpt_results_dir_path):
     assert tuner.hpt_results_dir_path == hpt_results_dir_path
     assert tuner.is_minimize is True
     assert tuner.num_trials == hpt_specs.get("num_trials", 20)
-    assert tuner.hyperparameter_names == [
-        "hp_int",
-        "hp_float",
-        "hp_log_int",
-        "hp_log_float",
-        "hp_categorical",
-    ]
-    assert tuner.default_hyperparameter_vals == [1, 2.0, 5, 0.5, "a"]
 
 
 def test_get_objective_func(mocker, tuner, mock_data, default_hyperparameters):
@@ -139,6 +134,11 @@ def test_get_objective_func(mocker, tuner, mock_data, default_hyperparameters):
     """
     mock_train_X, mock_train_y, mock_valid_X, mock_valid_y = mock_data
 
+    mock_extract_hp_from_trial = mocker.patch(
+        "src.hyperparameter_tuning.tuner.HyperParameterTuner."
+        + "_extract_hyperparameters_from_trial",
+        return_value=default_hyperparameters,
+    )
     mock_train = mocker.patch(
         "src.hyperparameter_tuning.tuner.train_predictor_model",
         return_value="mock_classifier",
@@ -150,7 +150,8 @@ def test_get_objective_func(mocker, tuner, mock_data, default_hyperparameters):
     objective_func = tuner._get_objective_func(
         mock_train_X, mock_train_y, mock_valid_X, mock_valid_y
     )
-    result = objective_func([1, 2.0, 5, 0.5, "a"])
+    result = objective_func("mock_trial")
+    mock_extract_hp_from_trial.assert_called_once_with("mock_trial")
     mock_train.assert_called_once_with(
         mock_train_X, mock_train_y, default_hyperparameters
     )
@@ -158,111 +159,49 @@ def test_get_objective_func(mocker, tuner, mock_data, default_hyperparameters):
     assert result == 0.8
 
 
-def test_get_hpt_space(tuner):
-    """Tests the `get_hpt_space` method of the `HyperParameterTuner` class.
-
-    This test verifies that the `get_hpt_space` method correctly returns
-    a list of hyperparameter space objects.
-    """
-    hpt_space = tuner._get_hpt_space()
-
-    assert hpt_space[0].name == "hp_int"
-    assert hpt_space[0].prior == "uniform"
-    assert hpt_space[2].name == "hp_log_int"
-    assert hpt_space[2].prior == "log-uniform"
-    assert hpt_space[4].name == "hp_categorical"
-
-
 def test_run_hyperparameter_tuning(mocker, tuner, mock_data):
-    """
-    Tests the `run_hyperparameter_tuning` method of the `HyperParameterTuner`
-    class.
+    """Tests the `run_hyperparameter_tuning` method of the `HyperParameterTuner` class.
 
-    This test verifies that the `run_hyperparameter_tuning` method correctly performs
-    the hyperparameter tuning process and returns the best hyperparameters and score.
+    This test verifies that the `run_hyperparameter_tuning` method correctly calls
+    internal methods and the `study.optimize` function from optuna.
     """
     mock_train_X, mock_train_y, mock_valid_X, mock_valid_y = mock_data
-    mock_gp_minimize = mocker.patch(
-        "src.hyperparameter_tuning.tuner.gp_minimize",
-        return_value="mock_optimizer_results",
+
+    mock_objective_func = mocker.patch(
+        "src.hyperparameter_tuning.tuner.HyperParameterTuner." + "_get_objective_func",
+        return_value="mock_objective_func",
     )
-    mock_save_hpt_results = mocker.patch.object(tuner, "save_hpt_summary_results")
-    mock_get_best_hps = mocker.patch.object(
-        tuner, "get_best_hyperparameters", return_value="mock_best_hps"
+
+    mock_save_hpt_results = mocker.patch(
+        "src.hyperparameter_tuning.tuner.HyperParameterTuner."
+        + "save_hpt_summary_results",
     )
+
+    best_params = {"param1": 0.1, "param2": 10}
+    mock_study = mocker.Mock()
+    mock_study.best_params = best_params
+    tuner.study = mock_study
+    tuner.study.optimize = mocker.Mock()
 
     result = tuner.run_hyperparameter_tuning(
         mock_train_X, mock_train_y, mock_valid_X, mock_valid_y
     )
-    mock_gp_minimize.assert_called_once()
-    mock_save_hpt_results.assert_called_once_with("mock_optimizer_results")
-    mock_get_best_hps.assert_called_once_with("mock_optimizer_results")
-    assert result == "mock_best_hps"
 
+    mock_objective_func.assert_called_once_with(
+        mock_train_X, mock_train_y, mock_valid_X, mock_valid_y
+    )
 
-def test_get_best_hyperparameters(mocker, tuner):
-    """
-    Tests the `get_best_hyperparameters` method of the `HyperParameterTuner`
-    class.
+    tuner.study.optimize.assert_called_once_with(
+        func="mock_objective_func",
+        n_trials=tuner.num_trials,
+        n_jobs=1,
+        gc_after_trial=True,
+        callbacks=[logger_callback],
+    )
 
-    This test verifies that the `get_best_hyperparameters` method correctly returns
-    the best hyperparameters from the optimization results.
-    """
-    mock_optimizer_results = mocker.MagicMock()
-    mock_optimizer_results.func_vals = [0.3, 0.2, 0.4]
-    mock_optimizer_results.x_iters = [
-        [1, 1.0, 1, 0.1, "a"],
-        [2, 2.0, 2, 0.2, "b"],
-        [3, 3.0, 3, 0.3, "c"],
-    ]
-    result = tuner.get_best_hyperparameters(mock_optimizer_results)
-    assert result == {
-        "hp_int": 2,
-        "hp_float": 2.0,
-        "hp_log_int": 2,
-        "hp_log_float": 0.2,
-        "hp_categorical": "b",
-    }
+    mock_save_hpt_results.assert_called_once()
 
-
-def test_save_hpt_summary_results(mocker, tuner, hpt_results_dir_path):
-    """
-    Tests the `save_hpt_summary_results` method of the `HyperParameterTuner`
-    class.
-
-    This test verifies that the `save_hpt_summary_results` method correctly saves
-    the hyperparameter tuning results to a file.
-    """
-    # Mock necessary parts
-    mock_optimizer_results = mocker.MagicMock()
-    mock_optimizer_results.func_vals = [0.3, 0.2, 0.4]
-    mock_optimizer_results.x_iters = [
-        [1, 1.0, 1, 0.1, "a"],
-        [2, 2.0, 2, 0.2, "b"],
-        [3, 3.0, 3, 0.3, "c"],
-    ]
-
-    # Run the function under test
-    tuner.save_hpt_summary_results(mock_optimizer_results)
-
-    # Check if the CSV file is created in the temporary directory
-    assert len(os.listdir(hpt_results_dir_path)) == 1
-
-    # Check the contents of the CSV file
-    df = pd.read_csv(os.path.join(hpt_results_dir_path, "hpt_results.csv"))
-    assert df.shape == (3, 7)
-    assert (
-        df.columns
-        == [
-            "trial_num",
-            "hp_int",
-            "hp_float",
-            "hp_log_int",
-            "hp_log_float",
-            "hp_categorical",
-            "metric_value",
-        ]
-    ).all()
+    assert result == tuner.study.best_params
 
 
 def test_tune_hyperparameters(

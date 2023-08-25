@@ -5,26 +5,30 @@ from typing import Any, Dict, List
 import joblib
 import numpy as np
 import pandas as pd
-from shap import Explainer
+from lime import lime_tabular
 
+from logger import get_logger
 from prediction.predictor_model import predict_with_model
 from utils import read_json_as_dict
 
 EXPLAINER_FILE_NAME = "explainer.joblib"
 
+logger = get_logger(__name__)
+
 
 class ClassificationExplainer:
-    """Shap Explainer class for classification models"""
+    """LIME Explainer class for classification models"""
 
-    EXPLANATION_METHOD = "Shap"
+    EXPLANATION_METHOD = "LIME"
 
     def __init__(
         self, max_local_explanations: int = 5, max_saved_train_data_length: int = 10000
     ):
         self.max_local_explanations = max_local_explanations
         self.max_saved_train_data_length = max_saved_train_data_length
-        self._shap_explainer = None
+        self._explainer = None
         self._explainer_data = None
+        self._feature_names = None
 
     def fit(self, train_data: pd.DataFrame, **kwargs) -> None:
         """Fit the explainer to the training data.
@@ -39,25 +43,22 @@ class ClassificationExplainer:
         else:
             data = train_data.copy()
         self._explainer_data = data
+        self._feature_names = self._explainer_data.columns.tolist()
 
-    def _build_explainer(self, predictor_model, class_names):
+    def _build_explainer(self, class_names):
         """Build shap explainer
 
         Args:
-            predictor_model (Any): A trained predictor model
             class_names List[str]: List of class names
 
         Returns:
             'Explainer': instance of shap Explainer from shap library
         """
-        return Explainer(
-            model=lambda instances: predict_with_model(
-                predictor_model, instances, return_probs=True
-            ),
-            masker=self._explainer_data,
-            algorithm="auto",
-            output_names=class_names,
-            seed=0,
+        return lime_tabular.LimeTabularExplainer(
+            self._explainer_data.values,
+            mode="classification",
+            class_names=class_names,
+            feature_names=self._feature_names,
         )
 
     def get_explanations(
@@ -65,7 +66,7 @@ class ClassificationExplainer:
         instances_df: pd.DataFrame,
         predictor_model: Any,
         class_names: List[str],
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Get local explanations for the given instances.
@@ -79,23 +80,41 @@ class ClassificationExplainer:
             Dict[str, Any]: Explanations returned in a dictionary
         """
         # limit explanations to at most self.max_local_explanations
+        if len(instances_df) > self.max_local_explanations:
+            logger.info(
+                f"Requested {len(instances_df)} explanations.\n"
+                f"Limiting explanations to {self.max_local_explanations}"
+            )
         instances_df = instances_df.head(self.max_local_explanations)
 
-        if self._shap_explainer is None:
-            self._shap_explainer = self._build_explainer(predictor_model, class_names)
+        if self._explainer is None:
+            self._explainer = self._build_explainer(class_names)
 
         explanations = []
-        shap_values = self._shap_explainer(instances_df)
-        for row_num in range(len(instances_df)):
-            feature_scores = {}
-            for f_num, feature in enumerate(shap_values.feature_names):
-                feature_scores[feature] = list(
-                    np.round(shap_values.values[row_num][f_num], 5)
-                )
+        for i, row in instances_df.iterrows():
+            explanation = self._explainer.explain_instance(
+                row,
+                lambda instance: predict_with_model(
+                    predictor_model, instance, return_probs=True
+                ),
+                top_labels=len(class_names),
+                num_features=len(self._feature_names),
+            )
+
+            # initialize feature_scores dict with empty lists per feature
+            feature_scores = {feature_name: [] for feature_name in self._feature_names}
+
+            for c_idx in range(len(class_names)):
+                class_explanations = explanation.local_exp[c_idx]
+                for feat_idx, feature_score in class_explanations:
+                    feature_scores[self._feature_names[feat_idx]].append(feature_score)
 
             explanations.append(
                 {
-                    "baseline": list(np.round(shap_values.base_values[row_num], 5)),
+                    "baseline": [
+                        np.round(explanation.intercept[0], 5),
+                        np.round(explanation.intercept[1], 5),
+                    ],
                     "featureScores": feature_scores,
                 }
             )

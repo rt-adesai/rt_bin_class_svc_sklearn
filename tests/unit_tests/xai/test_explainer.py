@@ -25,19 +25,18 @@ def test_fit_explainer(transformed_train_inputs: DataFrame) -> None:
     assert explainer._explainer_data.shape == transformed_train_inputs.shape
 
 
-def test_build_explainer(transformed_train_inputs: DataFrame, predictor: Any) -> None:
+def test_build_explainer(transformed_train_inputs: DataFrame) -> None:
     """
     Test building of the explainer.
 
     Args:
         transformed_train_inputs (DataFrame): Transformed train inputs.
-        predictor (Any): A predictor model object.
     """
     explainer = ClassificationExplainer()
     explainer.fit(transformed_train_inputs)
     class_names = ["class_0", "class_1"]  # Assuming binary classification
-    shap_explainer = explainer._build_explainer(predictor, class_names)
-    assert shap_explainer is not None
+    explainer_model = explainer._build_explainer(class_names)
+    assert explainer_model is not None
 
 
 @pytest.mark.slow
