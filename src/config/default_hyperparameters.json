@@ -1,5 +1,7 @@
 {
   "C": 1.0,
   "kernel": "rbf",
-  "degree": 3
+  "degree": 3,
+  "decision_threshold": 0.5,
+  "positive_class_weight": 1.0
 }
