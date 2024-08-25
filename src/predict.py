@@ -65,7 +65,6 @@ def create_predictions_dataframe(
     labels = predictions_arr[:, 1] >= decision_threshold
     labels = np.where(labels, positive_class, negative_class)
     predictions_df[prediction_field_name] = labels
-    predictions_df["decision_threshold"] = decision_threshold
     return predictions_df
 
 
