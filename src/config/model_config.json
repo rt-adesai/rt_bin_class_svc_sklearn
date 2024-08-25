@@ -2,5 +2,5 @@
   "seed_value": 123,
   "validation_split": 0.1,
   "prediction_field_name": "prediction",
-  "scenario": "decision_threshold"
+  "scenario": "smote"
 }
