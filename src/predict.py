@@ -53,15 +53,14 @@ def create_predictions_dataframe(
     if len(predictions_arr) != len(ids):
         raise ValueError("Length of ids does not match number of predictions")
     predictions_df.insert(0, id_field_name, ids)
+    predictions_df["decision_threshold"] = decision_threshold
     if return_probs:
         return predictions_df
     negative_class = class_names[0]
     positive_class = class_names[1]
     labels = predictions_arr[:, 1] >= decision_threshold
     labels = np.where(labels, positive_class, negative_class)
-
     predictions_df[prediction_field_name] = labels
-    predictions_df["decision_threshold"] = decision_threshold
     return predictions_df
 
 
